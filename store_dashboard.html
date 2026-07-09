@@ -1271,7 +1271,7 @@ var NEW_SECTION_MAP = {
   '78309':'5_fulfill','53010':'5_fulfill','50030':'5_fulfill','54600':'5_fulfill',
   '53410':'5_fulfill','61310':'5_fulfill','54200':'5_fulfill','54100':'5_fulfill',
   '53610':'5_fulfill','53900':'5_fulfill',
-  '80710':'6_opex','70501':'6_opex','71400':'6_opex','84300':'6_opex',
+  '80710':'6_opex','70501':'5_fulfill','71400':'6_opex','84300':'6_opex',
   '84101':'6_opex','84150':'6_opex','71500':'6_opex','72300':'6_opex',
   '70700':'6_opex','72998':'6_opex','84310':'6_opex','87220':'6_opex',
   '70300':'6_opex','70500':'6_opex','85300':'6_opex','80610':'6_opex',
@@ -2847,7 +2847,7 @@ function renderNewStructureTable(container,storeIdx,months,storeIdxB,monthsB,lbl
   var SECS=['1_gross_rev','2_comm_ded','3_cog','4_lease','5_fulfill','6_opex'];
   var SUBS={'2_comm_ded':{label:'Net Revenue',key:'netRev',hb:true},'5_fulfill':{label:'Variable Profit',key:'varProfit',hb:true},'6_opex':{label:'EBITDA',key:'ebitda',hb:true}};
 
-  var html='<div style="overflow-x:auto;border:2px solid #1A1A2E;border-radius:4px;overflow:hidden"><table style="width:100%;border-collapse:collapse;font-size:12px">';
+  var html='<div style="overflow-x:auto;overflow-y:auto;max-height:65vh;border:2px solid #1A1A2E;border-radius:4px;position:relative"><table style="width:100%;border-collapse:collapse;font-size:12px">';
 
   // Header
   html+='<thead><tr>';
@@ -2960,7 +2960,89 @@ function setStoreSummaryMode(m) {
   renderStoreSummaryTable();
 }
 
+
+var SECTION_GL_NAMES = {
+  '32000':'Grocery Revenue','36900':'Other Revenue','30065':'WM Additions','80910':'IC In-App Advertising',
+  '44801':'IC Commission','35009':'IC Funded Discounts','44004':'Rebates',
+  '44001':'Grocery Purchases','44012':'Purchase Price Variances','44007':'WH Handling','44002':'Inventory Shrinkage',
+  '44201':'Packing Bags','44010':'Inventory Adjustment','44301':'WM Deductions','44013':'Inventory Count Variances',
+  '72200':'Warehouse Rent','88050':'Outsourced DC Operations','44011':'Inventory Reserve',
+  '72150':'Store Rent & Leases','87150':'Utilities','87310':'Store Maintenance','72650':'Other Rent/Maintenance',
+  '72100':'Office Rent','72500':'Parking Rent',
+  '50020':'Hourly Salaries','50010':'Monthly Salaries','52010':'Fees','59900':'Counter - Fringe Benefits',
+  '63000':'Social Security','78304':'Travel - Commuting','64800':'Obligatory Insurance','51010':'Overtime',
+  '54400':'Other Fringe Benefits','61300':'Pension - Employer','88055':'Outsourced WM Staff',
+  '53310':'Holiday Pay Accrual','78309':'Travel - Daily Allowance','53010':'Holiday Pay','50030':'IC Intl Assignment',
+  '54600':'Convalescence Fees','53410':'Sick & Parental Leave','61310':'Study Fund - Employer',
+  '54200':'Car Benefits','54100':'Meal Benefits','53610':'Salary Gross-up','53900':'Social Security Accrual',
+  '78308':'Travel - Fuel','78302':'Travel - Accommodation','86340':'Employee Healthcare',
+  '70501':'Office Snacks','70900':'Other Employee Expenses','54700':'Insurance Compensations',
+  '80710':'Media - Digital','70501':'Office Snacks','71400':'Recruiting','84300':'Legal Services',
+  '72100':'Office Rent','84101':'IC Accounting','71500':'Job Ads','72300':'Vehicle Rent',
+  '70700':'Employee Gifts','72998':'Facilities Allocation','84310':'Consulting','87220':'Store Supplies',
+  '70300':'Recreation','70500':'Meals','85300':'Data Transfer','80610':'Influencer',
+  '84450':'WM Store Setup','72500':'Parking Rent','80720':'Media - Outdoor','53900':'SS Accrual',
+  '80910':'IC Advertising','84150':'Payroll Services','84101':'IC Accounting'
+};
+
+
+var SUMMARY_EXPANDED = {};
+var ACTIVE_STORE_MONTHS = [];
+
+function getSummarySubCols(secKey, rows) {
+  // Get all unique GL names that appear in any store for this section
+  var secMap = {'commDed':'2_comm_ded','cog':'3_cog','lease':'4_lease','fulfill':'5_fulfill','opex':'6_opex'};
+  var nsKey = secMap[secKey];
+  var names = [];
+  var months = ACTIVE_STORE_MONTHS || [];
+  for (var i=0; i<rows.length; i++) {
+    var det = storeDetAvg(rows[i].idx, months);
+    for (var acc in det) {
+      var code = acc.split(' - ')[0].trim();
+      if (NEW_SECTION_MAP[code] === nsKey && det[acc] !== 0) {
+        var name = SECTION_GL_NAMES[code] || acc.replace(/^\d+ - /, '');
+        if (names.indexOf(name) < 0) names.push(name);
+      }
+    }
+  }
+  return names.sort();
+}
+
+function getSubColVal(storeIdx, secKey, subName, stDet, secMap) {
+  var nsKey = secMap[secKey];
+  var total = 0;
+  for (var acc in stDet) {
+    var code = acc.split(' - ')[0].trim();
+    if (NEW_SECTION_MAP[code] === nsKey) {
+      var name = SECTION_GL_NAMES[code] || acc.replace(/^\d+ - /, '');
+      if (name === subName) total += stDet[acc];
+    }
+  }
+  if (STORE_SUMMARY_MODE === 1) {
+    var ns = calcNewStructure(storeIdx, ACTIVE_STORE_MONTHS||[]);
+    return ns && ns.grossRev ? total/Math.abs(ns.grossRev) : 0;
+  }
+  if (STORE_SUMMARY_MODE === 2) {
+    var orders = 0;
+    var mArr = ACTIVE_STORE_MONTHS||[];
+    for (var mi=0; mi<mArr.length; mi++) {
+      var mIdx = STORE_MONTHS.indexOf(mArr[mi]);
+      if (mIdx>=0 && SD[storeIdx] && SD[storeIdx].m[mIdx]) orders += SD[storeIdx].m[mIdx].o||0;
+    }
+    if (mArr.length>1 && orders>0) orders = Math.round(orders/mArr.length);
+    return orders ? total/orders : 0;
+  }
+  return total;
+}
+
+function toggleSummarySec(secKey) {
+  SUMMARY_EXPANDED[secKey] = !SUMMARY_EXPANDED[secKey];
+  renderStoreSummaryTable();
+}
+
 function renderStoreSummaryTable() {
+  ACTIVE_STORE_MONTHS = selStoreCurr.length ? selStoreCurr.filter(function(m){return STORE_MONTHS.indexOf(m)>=0;}) : [];
+  var months = ACTIVE_STORE_MONTHS;
   var panel = document.getElementById('storeSummaryPanel');
   var table = document.getElementById('storeSummaryTable');
   if (!panel || !table) return;
@@ -3084,7 +3166,7 @@ function renderStoreSummaryTable() {
   });
 
   // Build table
-  var thStyle = 'padding:9px 12px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;border-bottom:3px solid #0080B8;white-space:nowrap;background:#D6EEF8';
+  var thStyle = 'padding:7px 8px;text-align:right;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;border-bottom:3px solid #0080B8;white-space:nowrap;background:#D6EEF8;position:sticky;top:0;z-index:10';
   var html = '<thead><tr>';
   html += '<th style="'+thStyle+';text-align:left;min-width:120px;position:sticky;left:0;background:#D6EEF8;color:#0080B8;font-size:11px;border-right:3px solid #009DE0">Store</th>';
   COLS.forEach(function(col) {
@@ -3098,7 +3180,22 @@ function renderStoreSummaryTable() {
       if(col.key==='commDed'||col.key==='varProfit'||col.key==='opex'||col.key==='ebitda') grpBorder=';border-left:3px solid #0080B8';
       else if(col.key==='cog'||col.key==='lease'||col.key==='fulfill') grpBorder=';border-left:1px dashed #C8D3DD';
       if (col.isInsight) { html += '<th style="'+thStyle+';text-align:center;border-left:3px solid #0080B8;min-width:140px">Key Issue</th>'; return; }
-      html += '<th style="'+thStyle+';color:'+color+';min-width:78px'+grpBorder+'">'+col.label+'</th>';
+      var hasDD = ['commDed','cog','lease','fulfill','opex'].indexOf(col.key) >= 0;
+      var isExp = hasDD && SUMMARY_EXPANDED[col.key];
+      if (isExp) {
+        var subCols = getSummarySubCols(col.key, rows);
+        subCols.forEach(function(sub, si) {
+          var borderL = si===0 ? grpBorder : '';
+          var isLast  = si === subCols.length-1;
+          html += '<th style="'+thStyle+';color:'+color+';min-width:100px;white-space:normal;word-break:break-word'+borderL+'">'
+            + sub
+            + (isLast ? ' <button onclick="event.stopPropagation();toggleSummarySec(\''+col.key+'\')" style="margin-left:4px;padding:1px 6px;background:#DC2626;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700;line-height:1.4" title="Collapse">−</button>' : '')
+            + '</th>';
+        });
+      } else {
+        var ddBtn = hasDD ? ' <button onclick="event.stopPropagation();toggleSummarySec(\''+col.key+'\')" id="ssbtn_'+col.key+'" style="margin-left:4px;padding:1px 6px;background:#0096C7;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:11px;font-weight:700;line-height:1.4">+</button>' : '';
+        html += '<th style="'+thStyle+';color:'+color+';min-width:78px'+grpBorder+'">'+col.label+ddBtn+'</th>';
+      }
   });
   html += '</tr></thead><tbody>';
 
@@ -3125,12 +3222,35 @@ function renderStoreSummaryTable() {
       var _grpR = '';
       if(col.key==='commDed'||col.key==='varProfit'||col.key==='opex'||col.key==='ebitda') _grpR=';border-left:3px solid #0080B8';
       else if(col.key==='cog'||col.key==='lease'||col.key==='fulfill') _grpR=';border-left:1px dashed #C8D3DD';
-      html += '<td style="padding:7px 8px;text-align:right;font-size:11px;font-weight:600;border-bottom:2px solid #D1DCE5;background:'+bg2+';color:'+tc+';white-space:nowrap'+_grpR+'">'+fmt(val)+'</td>';
+      var hasDD2 = ['commDed','cog','lease','fulfill','opex'].indexOf(col.key) >= 0;
+      if (hasDD2 && SUMMARY_EXPANDED[col.key]) {
+        var subCols2 = getSummarySubCols(col.key, rows);
+        var stDet2 = storeDetAvg(r.idx, months);
+        var secMap2 = {'commDed':'2_comm_ded','cog':'3_cog','lease':'4_lease','fulfill':'5_fulfill','opex':'6_opex'};
+        subCols2.forEach(function(subName, si) {
+          var subVal = getSubColVal(r.idx, col.key, subName, stDet2, secMap2);
+          // Compute avg for this sub-col
+          var subSum2=0, subCnt2=0;
+          rows.forEach(function(rv2){
+            var det2x = storeDetAvg(rv2.idx, months);
+            var sv2 = getSubColVal(rv2.idx, col.key, subName, det2x, secMap2);
+            if(sv2!==0){subSum2+=sv2;subCnt2++;}
+          });
+          var subAvg2 = subCnt2>0 ? subSum2/subCnt2 : 0;
+          var sbg = subVal===0 ? '' : cellColor(subVal, subAvg2, col.hb);
+          var stc = subVal===0 ? '#9CA3AF' : textColor(subVal, subAvg2, col.hb);
+          var borderL2 = si===0 ? _grpR : '';
+          html += '<td style="padding:6px 8px;text-align:right;font-size:10px;font-weight:600;border-bottom:2px solid #D1DCE5;background:'+sbg+';color:'+stc+';white-space:nowrap'+borderL2+'">'+fmt(subVal)+'</td>';
+        });
+      } else {
+        html += '<td style="padding:7px 8px;text-align:right;font-size:11px;font-weight:600;border-bottom:2px solid #D1DCE5;background:'+bg2+';color:'+tc+';white-space:nowrap'+_grpR+'">'+fmt(val)+'</td>';
+      }
     });
     var ins = getInsight(r, avgs);
     html += '<td style="padding:5px 10px;border-bottom:1px solid var(--border);background:'+ins.bg+';min-width:160px;line-height:1.6;border-bottom:2px solid #D1DCE5;border-left:3px solid #0080B8">'+ins.html+'</td>';
 
     html += '</tr>';
+
   });
 
   // Totals / AVG row
@@ -3142,7 +3262,24 @@ function renderStoreSummaryTable() {
           var _agr = '';
       if(col.key==='commDed'||col.key==='varProfit'||col.key==='opex'||col.key==='ebitda') _agr=';border-left:3px solid #0080B8';
       else if(col.key==='cog'||col.key==='lease'||col.key==='fulfill') _agr=';border-left:1px dashed #C8D3DD';
-      html += '<td style="padding:8px 12px;text-align:right;font-size:11px;font-weight:700;color:#1A1A2E;white-space:nowrap;background:#D6EEF8'+_agr+'">'+fmt(avg)+'</td>';
+      if (['commDed','cog','lease','fulfill','opex'].indexOf(col.key) >= 0 && SUMMARY_EXPANDED[col.key]) {
+        var subCols3 = getSummarySubCols(col.key, rows);
+        subCols3.forEach(function(subName, si) {
+          // Compute avg for this sub-col across all stores
+          var subSum3 = 0, subCnt3 = 0;
+          rows.forEach(function(rv) {
+            var det3 = storeDetAvg(rv.idx, months);
+            var sm3  = {'commDed':'2_comm_ded','cog':'3_cog','lease':'4_lease','fulfill':'5_fulfill','opex':'6_opex'};
+            var sv3  = getSubColVal(rv.idx, col.key, subName, det3, sm3);
+            if (sv3 !== 0) { subSum3 += sv3; subCnt3++; }
+          });
+          var subAvg3 = subCnt3 > 0 ? subSum3/subCnt3 : 0;
+          var borderL3 = si===0 ? _agr : '';
+          html += '<td style="padding:8px 8px;text-align:right;font-size:10px;font-weight:700;color:#0080B8;white-space:nowrap;background:#D6EEF8'+borderL3+'">'+fmt(subAvg3)+'</td>';
+        });
+      } else {
+        html += '<td style="padding:8px 12px;text-align:right;font-size:11px;font-weight:700;color:#1A1A2E;white-space:nowrap;background:#D6EEF8'+_agr+'">'+fmt(avg)+'</td>';
+      }
   });
   html += '</tr>';
   html += '</tbody>';
@@ -3156,6 +3293,8 @@ function toggleNsSec2(secId){
   dets.forEach(function(d){d.style.display=open?'none':'table-row';});
   if(btn)btn.textContent=open?'+':'−';
 }
+
+
 
 function closeStore() {
   ACTIVE_STORE_IDX = null;
