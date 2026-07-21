@@ -2320,6 +2320,63 @@ function setStorePeriodBrkdnMode(m) {
   renderStorePeriodBrkdn();
 }
 
+function renderStorePeriodTrendLine(div, months, points, fmtFn) {
+  // points[i] = null OR {dv:absDisplayVal, isAnomaly:bool, isC:bool, isP:bool, baseColor:'#hex'}
+  if (!div) return;
+  var tW=920, tH=140, tPadL=18, tPadR=18, tPadT=30, tPadB=22;
+  var validPts = points.filter(function(p){return p!==null;});
+  if (!validPts.length) { div.innerHTML=""; return; }
+  var validVals = validPts.map(function(p){return p.dv;});
+  // Tight scale to actual data range — do NOT force-include zero (fixes flattened trend for narrow ranges)
+  var tMin=Math.min.apply(null,validVals), tMax=Math.max.apply(null,validVals);
+  if (tMin===tMax) { tMin-=1; tMax+=1; }
+  var padding=(tMax-tMin)*0.18; tMin-=padding; tMax+=padding;
+  if (tMin<0 && Math.min.apply(null,validVals)>=0) tMin=0; // don't dip below 0 for all-positive abs values
+  var tRange=tMax-tMin;
+  var tSlotW = months.length > 1 ? (tW-tPadL-tPadR)/(months.length-1) : 0;
+  var chartH=tH-tPadT-tPadB;
+  var pts=[];
+  for(var i=0;i<months.length;i++){
+    if(points[i]===null){pts.push(null);continue;}
+    var p=points[i];
+    pts.push({x:tPadL+i*tSlotW, y:tPadT+chartH*(1-(p.dv-tMin)/tRange), v:p.dv, m:months[i], isC:p.isC, isP:p.isP, isAnomaly:p.isAnomaly, baseColor:p.baseColor});
+  }
+  var svg="";
+  // Optional zero reference line — only drawn if 0 actually falls within the visible range
+  if (0>=tMin && 0<=tMax) {
+    var zeroY=tPadT+chartH*(1-(0-tMin)/tRange);
+    svg+="<line x1='"+tPadL+"' y1='"+zeroY+"' x2='"+(tW-tPadR)+"' y2='"+zeroY+"' stroke='#D1D5DB' stroke-width='1' stroke-dasharray='4,3'/>";
+    svg+="<text x='"+(tW-tPadR+3)+"' y='"+(zeroY+4)+"' font-size='8' fill='#9CA3AF' font-family='Inter,sans-serif'>0</text>";
+  }
+  // line segments
+  for(var i=0;i<pts.length-1;i++){
+    if(!pts[i]||!pts[i+1]) continue;
+    var segColor = pts[i].isC?"#009DE0":pts[i].isP?"#7C3AED":pts[i].baseColor;
+    var lw = pts[i].isC||pts[i].isP?2:1.5;
+    svg+="<line x1='"+pts[i].x+"' y1='"+pts[i].y+"' x2='"+pts[i+1].x+"' y2='"+pts[i+1].y+"' stroke='"+segColor+"' stroke-width='"+lw+"' stroke-linecap='round'/>";
+  }
+  // dots + labels
+  for(var i=0;i<pts.length;i++){
+    if(!pts[i]) continue;
+    var pt=pts[i];
+    var dotColor = pt.isC?"#009DE0":pt.isP?"#7C3AED":(pt.isAnomaly?"#F59E0B":pt.baseColor);
+    var r = (pt.isC||pt.isP||pt.isAnomaly)?5.5:3.5;
+    svg+="<circle cx='"+pt.x+"' cy='"+pt.y+"' r='"+r+"' fill='"+((pt.isC||pt.isP||pt.isAnomaly)?dotColor:"white")+"' stroke='"+dotColor+"' stroke-width='"+((pt.isC||pt.isP||pt.isAnomaly)?2:1)+"'/>";
+    var lblSize = (pt.isC||pt.isP||pt.isAnomaly) ? '9.5' : '8';
+    var lblWeight = (pt.isC||pt.isP||pt.isAnomaly) ? '700' : '600';
+    var lblColor = pt.isC?"#009DE0":pt.isP?"#7C3AED":(pt.isAnomaly?"#B45309":pt.baseColor);
+    var lblY = pt.y - r - 4;
+    if(lblY < 12) lblY = pt.y + r + 11;
+    var lblTxt = fmtFn(pt.v)+(pt.isAnomaly?' \u26A0':'');
+    svg+="<text x='"+pt.x+"' y='"+lblY+"' text-anchor='middle' font-size='"+lblSize+"' font-weight='"+lblWeight+"' fill='"+lblColor+"' font-family='Inter,sans-serif'>"+lblTxt+"</text>";
+    var mLbl=pt.m.replace(" 20","'");
+    svg+="<text x='"+pt.x+"' y='"+(tH-3)+"' text-anchor='middle' font-size='8.5' font-weight='"+((pt.isC||pt.isP)?"600":"400")+"' fill='"+((pt.isC||pt.isP)?"#374151":"#9CA3AF")+"' font-family='Inter,sans-serif'>"+mLbl+"</text>";
+  }
+  var hasAnomaly = pts.some(function(p){return p&&p.isAnomaly;});
+  div.innerHTML="<svg width='100%' viewBox='0 0 "+tW+" "+tH+"' preserveAspectRatio='xMidYMid meet' xmlns='http://www.w3.org/2000/svg'>"+svg+"</svg>"
+    +(hasAnomaly?"<div style='padding:2px 12px 8px;font-size:10.5px;color:#B45309'>&#9888; = sign flipped vs. normal for this line (e.g. a credit/refund month) — shown as absolute value, flagged for review</div>":"");
+}
+
 function renderStorePeriodBrkdn() {
   var container = document.getElementById('storePeriodBrkdnChart');
   if (!container || !STORE_PERIOD_BRKDN_KEY || STORE_PERIOD_BRKDN_STOREIDX===null) return;
@@ -2328,7 +2385,7 @@ function renderStorePeriodBrkdn() {
 
   var sub = document.getElementById('storePeriodBrkdnSub');
   var modeLbl = STORE_PERIOD_BRKDN_MODE===0 ? '₪ per Order' : STORE_PERIOD_BRKDN_MODE===1 ? '% of Revenue' : '₪ Total';
-  if (sub) sub.textContent = modeLbl + ' · Jan 2025 – Jun 2026';
+  if (sub) sub.textContent = modeLbl + ' · Jan 2025 – Jun 2026 · shown as absolute value';
 
   var pnlKeyMap = {
     revenue:'revenue', rev_ded:'rev_ded', net_revenue:'net_revenue',
@@ -2345,12 +2402,25 @@ function renderStorePeriodBrkdn() {
   var isAcctKey = !isNewSec && (STORE_PERIOD_BRKDN_KEY.indexOf(' - ') >= 0 || !(STORE_PERIOD_BRKDN_KEY in pnlKeyMap));
   var pnlKey = isAcctKey ? null : (pnlKeyMap[STORE_PERIOD_BRKDN_KEY] || STORE_PERIOD_BRKDN_KEY);
 
-  // Build one value per month across the full timeline (null = no data that month)
-  var vals = [];
+  // Classify expected sign: 'neg' = cost/deduction (normally negative raw), 'pos' = revenue (normally positive raw), null = subtotal (real outcome, no anomaly flag)
+  var costLikeKeys = ['rev_ded','cogs','ofl_payroll','opex','marketing','ga','amort','financial','2_comm_ded','3_cog','4_lease','5_fulfill','6_opex'];
+  var revenueLikeKeys = ['revenue','1_gross_rev'];
+  var subtotalKeys = ['net_revenue','var_profit','ebitda','op_profit','net_profit'];
+  var expectedSign;
+  if (subtotalKeys.indexOf(STORE_PERIOD_BRKDN_KEY) >= 0) expectedSign = null;
+  else if (revenueLikeKeys.indexOf(STORE_PERIOD_BRKDN_KEY) >= 0) expectedSign = 'pos';
+  else if (costLikeKeys.indexOf(STORE_PERIOD_BRKDN_KEY) >= 0) expectedSign = 'neg';
+  else if (isAcctKey) {
+    var _code = STORE_PERIOD_BRKDN_KEY.split(' - ')[0];
+    expectedSign = (NEW_SECTION_MAP[_code] === '1_gross_rev') ? 'pos' : 'neg';
+  } else expectedSign = 'neg';
+  var baseColor = expectedSign==='pos' ? '#10B981' : expectedSign==='neg' ? '#EF4444' : '#6366F1';
+
+  var points = [];
   for (var mi=0; mi<STORE_MONTHS.length; mi++) {
     var m = STORE_MONTHS[mi];
     var pnl = storeAvg(storeIdx, [m]);
-    if (!pnl || !pnl.orders) { vals.push(null); continue; }
+    if (!pnl || !pnl.orders) { points.push(null); continue; }
     var raw;
     if (isNewSec) {
       var ns = calcNewStructure(storeIdx, [m]);
@@ -2361,26 +2431,32 @@ function renderStorePeriodBrkdn() {
     } else {
       raw = pnl[pnlKey] || 0;
     }
-    var dv;
-    if (STORE_PERIOD_BRKDN_MODE === 0) dv = raw / pnl.orders;
-    else if (STORE_PERIOD_BRKDN_MODE === 1) dv = pnl.revenue !== 0 ? raw / Math.abs(pnl.revenue) : 0;
-    else dv = raw;
-    vals.push(dv);
+    var rawDv;
+    if (STORE_PERIOD_BRKDN_MODE === 0) rawDv = raw / pnl.orders;
+    else if (STORE_PERIOD_BRKDN_MODE === 1) rawDv = pnl.revenue !== 0 ? raw / Math.abs(pnl.revenue) : 0;
+    else rawDv = raw;
+    var isAnomaly = (expectedSign==='neg' && raw>0) || (expectedSign==='pos' && raw<0);
+    points.push({
+      dv: Math.abs(rawDv),
+      isAnomaly: isAnomaly,
+      isC: selStoreCurr.indexOf(m)>=0,
+      isP: selStoreComp.indexOf(m)>=0,
+      baseColor: baseColor
+    });
   }
 
-  if (vals.every(function(v){return v===null;})) {
+  if (points.every(function(p){return p===null;})) {
     container.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">No data</div>';
     return;
   }
 
   function fmtVal(v) {
-    var pos = v>=0;
-    if (STORE_PERIOD_BRKDN_MODE===0) return (pos?'':'-')+'₪'+Math.abs(v).toFixed(2);
-    if (STORE_PERIOD_BRKDN_MODE===1) return (pos?'':'-')+(Math.abs(v)*100).toFixed(1)+'%';
-    return (pos?'':'-')+'₪'+Math.round(Math.abs(v)/1000).toLocaleString('en-US')+'k';
+    if (STORE_PERIOD_BRKDN_MODE===0) return '₪'+v.toFixed(2);
+    if (STORE_PERIOD_BRKDN_MODE===1) return (v*100).toFixed(1)+'%';
+    return '₪'+Math.round(v/1000).toLocaleString('en-US')+'k';
   }
 
-  renderStoreTrendLineColored(container, STORE_MONTHS, vals, selStoreCurr, selStoreComp, fmtVal);
+  renderStorePeriodTrendLine(container, STORE_MONTHS, points, fmtVal);
 }
 
 function toggleStoreSectionById(rowId, clickedRow) {
