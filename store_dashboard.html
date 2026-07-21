@@ -2328,7 +2328,7 @@ function renderStorePeriodBrkdn() {
 
   var sub = document.getElementById('storePeriodBrkdnSub');
   var modeLbl = STORE_PERIOD_BRKDN_MODE===0 ? '₪ per Order' : STORE_PERIOD_BRKDN_MODE===1 ? '% of Revenue' : '₪ Total';
-  if (sub) sub.textContent = modeLbl + ' · Jan 2025 – Jun 2026 (chronological)';
+  if (sub) sub.textContent = modeLbl + ' · Jan 2025 – Jun 2026';
 
   var pnlKeyMap = {
     revenue:'revenue', rev_ded:'rev_ded', net_revenue:'net_revenue',
@@ -2345,21 +2345,19 @@ function renderStorePeriodBrkdn() {
   var isAcctKey = !isNewSec && (STORE_PERIOD_BRKDN_KEY.indexOf(' - ') >= 0 || !(STORE_PERIOD_BRKDN_KEY in pnlKeyMap));
   var pnlKey = isAcctKey ? null : (pnlKeyMap[STORE_PERIOD_BRKDN_KEY] || STORE_PERIOD_BRKDN_KEY);
 
-  // Gather values per month, chronological order — only months with data for this store
+  // Build one value per month across the full timeline (null = no data that month)
   var vals = [];
   for (var mi=0; mi<STORE_MONTHS.length; mi++) {
     var m = STORE_MONTHS[mi];
     var pnl = storeAvg(storeIdx, [m]);
-    if (!pnl || !pnl.orders) continue;
+    if (!pnl || !pnl.orders) { vals.push(null); continue; }
     var raw;
     if (isNewSec) {
       var ns = calcNewStructure(storeIdx, [m]);
       raw = ns[newSecMap[STORE_PERIOD_BRKDN_KEY]] || 0;
-      if (raw === 0) continue;
     } else if (isAcctKey) {
       var det = storeDetAvg(storeIdx, [m]);
       raw = (det && det[STORE_PERIOD_BRKDN_KEY] !== undefined) ? det[STORE_PERIOD_BRKDN_KEY] : 0;
-      if (raw === 0) continue;
     } else {
       raw = pnl[pnlKey] || 0;
     }
@@ -2367,73 +2365,22 @@ function renderStorePeriodBrkdn() {
     if (STORE_PERIOD_BRKDN_MODE === 0) dv = raw / pnl.orders;
     else if (STORE_PERIOD_BRKDN_MODE === 1) dv = pnl.revenue !== 0 ? raw / Math.abs(pnl.revenue) : 0;
     else dv = raw;
-    vals.push({name:m, raw:raw, dv:dv, orders:pnl.orders, revenue:pnl.revenue, isSel: selStoreCurr.indexOf(m)>=0});
+    vals.push(dv);
   }
 
-  if (!vals.length) {
+  if (vals.every(function(v){return v===null;})) {
     container.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">No data</div>';
     return;
   }
 
-  // Layout: identical fixed-zone system to the store-comparison chart, but chronological (no sorting)
-  var W=960, nameW=170, valW=68, padT=20, padB=16, padR=12;
-  var barZoneW = W - nameW - valW - padR;
-  var zeroX = nameW + valW;
-
-  var n=vals.length, rowH=24, gap=5;
-  var H=padT+(rowH+gap)*n+padB;
-  var maxAbs=0;
-  vals.forEach(function(v){if(Math.abs(v.dv)>maxAbs)maxAbs=Math.abs(v.dv);});
-  if(maxAbs===0)maxAbs=1;
-
-  var hasNeg = vals.some(function(v){return v.dv<0;});
-  var hasPos = vals.some(function(v){return v.dv>0;});
-  var mixed = hasNeg && hasPos;
-
-  var negShare = mixed ? 0.45 : 0;
-  var posShare = mixed ? 0.45 : 0.88;
-  var mixedZeroX = mixed ? (nameW + valW + barZoneW * negShare) : zeroX;
-  if (mixedZeroX < zeroX) mixedZeroX = zeroX;
-  var actualZeroX = mixed ? mixedZeroX : zeroX;
-  var maxBarPos = barZoneW * posShare;
-  var maxBarNeg = mixed ? barZoneW * negShare : 0;
-
-  var svg = '';
-  svg += "<line x1='"+actualZeroX+"' y1='"+(padT-4)+"' x2='"+actualZeroX+"' y2='"+(H-padB+4)+"' stroke='#D1D5DB' stroke-width='1.5'/>";
-
-  var costKeys = ['rev_ded','cogs','ofl_payroll','opex','marketing','ga','amort','financial'];
-  var isCost = costKeys.indexOf(STORE_PERIOD_BRKDN_KEY) >= 0;
-
-  for (var i=0; i<vals.length; i++) {
-    var sv = vals[i];
-    var isPos = sv.dv >= 0;
-    var color = sv.isSel ? '#F97316' : (isPos?'#10B981':'#EF4444');
-    var y = padT + i*(rowH+gap);
-    var midY = y + rowH/2 + 4;
-
-    svg += "<text x='"+(nameW-6)+"' y='"+midY+"' text-anchor='end' font-size='10' font-weight='"+(sv.isSel?'700':'500')+"' fill='"+(sv.isSel?'#F97316':'#1A1A2E')+"' font-family='Inter,sans-serif'>"+sv.name+"</text>";
-
-    var valStr;
-    if (STORE_PERIOD_BRKDN_MODE===0) valStr = (isPos?'':'-')+'₪'+Math.abs(sv.dv).toFixed(2);
-    else if (STORE_PERIOD_BRKDN_MODE===1) valStr = (isPos?'':'-')+(Math.abs(sv.dv)*100).toFixed(1)+'%';
-    else { var kk=Math.round(Math.abs(sv.raw)/1000); valStr = (isPos?'':'-')+'₪'+kk.toLocaleString('en-US')+'k'; }
-    var valColor = isPos ? '#059669' : '#DC2626';
-    svg += "<text x='"+(nameW+valW-4)+"' y='"+midY+"' text-anchor='end' font-size='9' font-weight='700' fill='"+valColor+"' font-family='Inter,sans-serif'>"+valStr+"</text>";
-
-    var barLen, barX;
-    if (mixed) {
-      barLen = Math.abs(sv.dv)/maxAbs*(isPos ? maxBarPos : maxBarNeg);
-      barX = isPos ? actualZeroX : actualZeroX - barLen;
-    } else {
-      barLen = Math.abs(sv.dv)/maxAbs*maxBarPos;
-      barX = zeroX;
-    }
-    if (barX < nameW + valW) { barLen -= (nameW + valW - barX); barX = nameW + valW; }
-    if (barLen < 0.5) continue;
-    svg += "<rect x='"+barX+"' y='"+(y+3)+"' width='"+barLen+"' height='"+(rowH-6)+"' rx='2' fill='"+color+"' opacity='0.82'/>";
+  function fmtVal(v) {
+    var pos = v>=0;
+    if (STORE_PERIOD_BRKDN_MODE===0) return (pos?'':'-')+'₪'+Math.abs(v).toFixed(2);
+    if (STORE_PERIOD_BRKDN_MODE===1) return (pos?'':'-')+(Math.abs(v)*100).toFixed(1)+'%';
+    return (pos?'':'-')+'₪'+Math.round(Math.abs(v)/1000).toLocaleString('en-US')+'k';
   }
 
-  container.innerHTML = "<svg width='100%' viewBox='0 0 "+W+" "+H+"' preserveAspectRatio='xMidYMid meet' xmlns='http://www.w3.org/2000/svg'>"+svg+"</svg>";
+  renderStoreTrendLineColored(container, STORE_MONTHS, vals, selStoreCurr, selStoreComp, fmtVal);
 }
 
 function toggleStoreSectionById(rowId, clickedRow) {
@@ -3041,8 +2988,8 @@ function renderNewStructureTable(container,storeIdx,months,storeIdxB,monthsB,lbl
     html+='<span id="nsbtn2_'+sid+'" style="font-size:10px;color:'+col+';margin-right:4px">+</span>';
     html+='<b style="color:'+col+'">'+lbl+'</b>';
     html+='<button class="store-brkdn-btn" onclick="event.stopPropagation();openStoreBrkdn(\''+secKey+'\',\''+lbl+'\')" title="Stores Comparison">&#9783;</button>';
-    html+='<button class="store-period-btn" onclick="event.stopPropagation();openStorePeriodBrkdn(\''+secKey+'\',\''+lbl+'\','+storeIdx+')" title="Period Comparison (Same Store)'+(hasB?' — A':'')+'">&#128197;</button>';
-    if(hasB){
+    html+='<button class="store-period-btn" onclick="event.stopPropagation();openStorePeriodBrkdn(\''+secKey+'\',\''+lbl+'\','+storeIdx+')" title="Period Comparison (Same Store)'+((hasB&&storeIdxB!==storeIdx)?' — A':'')+'">&#128197;</button>';
+    if(hasB && storeIdxB!==storeIdx){
       html+='<button class="store-period-btn" onclick="event.stopPropagation();openStorePeriodBrkdn(\''+secKey+'\',\''+lbl+'\','+storeIdxB+')" title="Period Comparison (Same Store) — B">&#128197;</button>';
     }
     html+='</td>';
@@ -3066,8 +3013,8 @@ function renderNewStructureTable(container,storeIdx,months,storeIdxB,monthsB,lbl
       html+='<td style="'+TD+';text-align:left;padding-left:28px;color:#555;font-size:11px">';
       html+=short;
       html+='<button class="store-brkdn-btn" onclick="event.stopPropagation();openStoreBrkdn(\''+acc+'\',\''+short+'\')" title="Stores Comparison">&#9783;</button>';
-      html+='<button class="store-period-btn" onclick="event.stopPropagation();openStorePeriodBrkdn(\''+acc+'\',\''+short+'\','+storeIdx+')" title="Period Comparison (Same Store)'+(hasB?' — A':'')+'">&#128197;</button>';
-      if(hasB){
+      html+='<button class="store-period-btn" onclick="event.stopPropagation();openStorePeriodBrkdn(\''+acc+'\',\''+short+'\','+storeIdx+')" title="Period Comparison (Same Store)'+((hasB&&storeIdxB!==storeIdx)?' — A':'')+'">&#128197;</button>';
+      if(hasB && storeIdxB!==storeIdx){
         html+='<button class="store-period-btn" onclick="event.stopPropagation();openStorePeriodBrkdn(\''+acc+'\',\''+short+'\','+storeIdxB+')" title="Period Comparison (Same Store) — B">&#128197;</button>';
       }
       html+='</td>';
