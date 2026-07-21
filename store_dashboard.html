@@ -106,6 +106,8 @@ body{font-family:'Inter',-apple-system,sans-serif;background:var(--bg);color:var
 .breakdown-link{display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:10px;font-weight:600;color:var(--wolt-dark);cursor:pointer;padding:1px 7px;border-radius:10px;background:var(--wolt-light);border:none;font-family:inherit;white-space:nowrap;flex-shrink:0}
 .store-brkdn-btn{display:inline-flex;align-items:center;margin-left:6px;font-size:9px;font-weight:700;color:#fff;cursor:pointer;padding:2px 7px;border-radius:8px;background:#009DE0;border:none;font-family:inherit;white-space:nowrap;flex-shrink:0;line-height:1.5;opacity:0.85;transition:opacity .15s}
 .store-brkdn-btn:hover{opacity:1;background:#0081BA}
+.store-period-btn{display:inline-flex;align-items:center;margin-left:6px;font-size:9px;font-weight:700;color:#fff;cursor:pointer;padding:2px 7px;border-radius:8px;background:#7C3AED;border:none;font-family:inherit;white-space:nowrap;flex-shrink:0;line-height:1.5;opacity:0.85;transition:opacity .15s}
+.store-period-btn:hover{opacity:1;background:#6D28D9}
 .store-brkdn-panel{background:#fff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.10);margin:10px 0 6px 0;overflow:hidden;border:1px solid var(--border)}
 .breakdown-link:hover{background:var(--wolt-mid)}
 .breakdown-panel{background:var(--card);border-radius:14px;box-shadow:var(--shm);border:2px solid var(--wolt-mid);overflow:hidden;margin-bottom:24px;display:none}
@@ -297,6 +299,25 @@ body{margin:0;padding:0;background:var(--bg)}
       </div>
     </div>
     <div id="storeBrkdnChart" style="padding:12px 0"></div>
+  </div>
+
+  <!-- Store Period Breakdown Panel (same store, across time periods) -->
+  <div id="storePeriodBrkdnPanel" style="display:none;background:#fff;border-radius:14px;box-shadow:0 2px 12px rgba(0,0,0,0.08);margin-bottom:16px;overflow:hidden">
+    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:#FAF8FF;flex-wrap:wrap;gap:8px">
+      <div>
+        <div style="font-size:13px;font-weight:700;color:#1A1A2E" id="storePeriodBrkdnTitle">Period Breakdown</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px" id="storePeriodBrkdnSub"></div>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div class="mode-btns">
+          <button id="spm0" onclick="setStorePeriodBrkdnMode(0)" class="mode-btn active">&#8362;/Order</button>
+          <button id="spm1" onclick="setStorePeriodBrkdnMode(1)" class="mode-btn">% Revenue</button>
+          <button id="spm2" onclick="setStorePeriodBrkdnMode(2)" class="mode-btn">&#8362; Total</button>
+        </div>
+        <button onclick="closeStorePeriodBrkdn()" style="font-size:13px;color:var(--muted);background:none;border:none;cursor:pointer;font-family:inherit">&#215; Close</button>
+      </div>
+    </div>
+    <div id="storePeriodBrkdnChart" style="padding:12px 0"></div>
   </div>
 
   <div class="store-panel" id="storePanel">
@@ -2265,6 +2286,156 @@ function renderStoreBrkdn() {
   container.innerHTML = "<svg width='100%' viewBox='0 0 "+W+" "+H+"' preserveAspectRatio='xMidYMid meet' xmlns='http://www.w3.org/2000/svg'>"+svg+"</svg>";
 }
 
+var STORE_PERIOD_BRKDN_KEY = null;
+var STORE_PERIOD_BRKDN_LABEL = null;
+var STORE_PERIOD_BRKDN_STOREIDX = null;
+var STORE_PERIOD_BRKDN_MODE = 0;
+
+function openStorePeriodBrkdn(key, label, storeIdx) {
+  STORE_PERIOD_BRKDN_KEY = key;
+  STORE_PERIOD_BRKDN_LABEL = label;
+  STORE_PERIOD_BRKDN_STOREIDX = storeIdx;
+  var panel = document.getElementById('storePeriodBrkdnPanel');
+  if (!panel) return;
+  panel.style.display = 'block';
+  var stName = (SD[storeIdx] && SD[storeIdx].n ? SD[storeIdx].n.replace('Wolt Market | ','') : '');
+  document.getElementById('storePeriodBrkdnTitle').textContent = label + ' — ' + stName + ' Over Time';
+  renderStorePeriodBrkdn();
+  try { panel.scrollIntoView({behavior:'smooth', block:'nearest'}); } catch(e) {}
+}
+
+function closeStorePeriodBrkdn() {
+  var panel = document.getElementById('storePeriodBrkdnPanel');
+  if (panel) panel.style.display = 'none';
+  STORE_PERIOD_BRKDN_KEY = null;
+  STORE_PERIOD_BRKDN_STOREIDX = null;
+}
+
+function setStorePeriodBrkdnMode(m) {
+  STORE_PERIOD_BRKDN_MODE = m;
+  for (var i=0; i<3; i++) {
+    var b = document.getElementById('spm'+i);
+    if (b) b.className = 'mode-btn' + (i===m?' active':'');
+  }
+  renderStorePeriodBrkdn();
+}
+
+function renderStorePeriodBrkdn() {
+  var container = document.getElementById('storePeriodBrkdnChart');
+  if (!container || !STORE_PERIOD_BRKDN_KEY || STORE_PERIOD_BRKDN_STOREIDX===null) return;
+  if (typeof SD === 'undefined' || !SD.length) return;
+  var storeIdx = STORE_PERIOD_BRKDN_STOREIDX;
+
+  var sub = document.getElementById('storePeriodBrkdnSub');
+  var modeLbl = STORE_PERIOD_BRKDN_MODE===0 ? '₪ per Order' : STORE_PERIOD_BRKDN_MODE===1 ? '% of Revenue' : '₪ Total';
+  if (sub) sub.textContent = modeLbl + ' · Jan 2025 – Jun 2026 (chronological)';
+
+  var pnlKeyMap = {
+    revenue:'revenue', rev_ded:'rev_ded', net_revenue:'net_revenue',
+    cogs:'cogs', ofl_payroll:'ofl_payroll', var_profit:'var_profit',
+    hq_payroll:'ofl_payroll', opex:'opex', marketing:'marketing',
+    ga:'ga', ebitda:'ebitda', amort:'amort', op_profit:'op_profit',
+    financial:'financial', net_profit:'net_profit'
+  };
+  var newSecMap = {
+    '1_gross_rev':'grossRev', '2_comm_ded':'commDed', '3_cog':'cog',
+    '4_lease':'lease', '5_fulfill':'fulfill', '6_opex':'opex'
+  };
+  var isNewSec = STORE_PERIOD_BRKDN_KEY in newSecMap;
+  var isAcctKey = !isNewSec && (STORE_PERIOD_BRKDN_KEY.indexOf(' - ') >= 0 || !(STORE_PERIOD_BRKDN_KEY in pnlKeyMap));
+  var pnlKey = isAcctKey ? null : (pnlKeyMap[STORE_PERIOD_BRKDN_KEY] || STORE_PERIOD_BRKDN_KEY);
+
+  // Gather values per month, chronological order — only months with data for this store
+  var vals = [];
+  for (var mi=0; mi<STORE_MONTHS.length; mi++) {
+    var m = STORE_MONTHS[mi];
+    var pnl = storeAvg(storeIdx, [m]);
+    if (!pnl || !pnl.orders) continue;
+    var raw;
+    if (isNewSec) {
+      var ns = calcNewStructure(storeIdx, [m]);
+      raw = ns[newSecMap[STORE_PERIOD_BRKDN_KEY]] || 0;
+      if (raw === 0) continue;
+    } else if (isAcctKey) {
+      var det = storeDetAvg(storeIdx, [m]);
+      raw = (det && det[STORE_PERIOD_BRKDN_KEY] !== undefined) ? det[STORE_PERIOD_BRKDN_KEY] : 0;
+      if (raw === 0) continue;
+    } else {
+      raw = pnl[pnlKey] || 0;
+    }
+    var dv;
+    if (STORE_PERIOD_BRKDN_MODE === 0) dv = raw / pnl.orders;
+    else if (STORE_PERIOD_BRKDN_MODE === 1) dv = pnl.revenue !== 0 ? raw / Math.abs(pnl.revenue) : 0;
+    else dv = raw;
+    vals.push({name:m, raw:raw, dv:dv, orders:pnl.orders, revenue:pnl.revenue, isSel: selStoreCurr.indexOf(m)>=0});
+  }
+
+  if (!vals.length) {
+    container.innerHTML = '<div style="padding:24px;text-align:center;color:var(--muted);font-size:13px">No data</div>';
+    return;
+  }
+
+  // Layout: identical fixed-zone system to the store-comparison chart, but chronological (no sorting)
+  var W=960, nameW=170, valW=68, padT=20, padB=16, padR=12;
+  var barZoneW = W - nameW - valW - padR;
+  var zeroX = nameW + valW;
+
+  var n=vals.length, rowH=24, gap=5;
+  var H=padT+(rowH+gap)*n+padB;
+  var maxAbs=0;
+  vals.forEach(function(v){if(Math.abs(v.dv)>maxAbs)maxAbs=Math.abs(v.dv);});
+  if(maxAbs===0)maxAbs=1;
+
+  var hasNeg = vals.some(function(v){return v.dv<0;});
+  var hasPos = vals.some(function(v){return v.dv>0;});
+  var mixed = hasNeg && hasPos;
+
+  var negShare = mixed ? 0.45 : 0;
+  var posShare = mixed ? 0.45 : 0.88;
+  var mixedZeroX = mixed ? (nameW + valW + barZoneW * negShare) : zeroX;
+  if (mixedZeroX < zeroX) mixedZeroX = zeroX;
+  var actualZeroX = mixed ? mixedZeroX : zeroX;
+  var maxBarPos = barZoneW * posShare;
+  var maxBarNeg = mixed ? barZoneW * negShare : 0;
+
+  var svg = '';
+  svg += "<line x1='"+actualZeroX+"' y1='"+(padT-4)+"' x2='"+actualZeroX+"' y2='"+(H-padB+4)+"' stroke='#D1D5DB' stroke-width='1.5'/>";
+
+  var costKeys = ['rev_ded','cogs','ofl_payroll','opex','marketing','ga','amort','financial'];
+  var isCost = costKeys.indexOf(STORE_PERIOD_BRKDN_KEY) >= 0;
+
+  for (var i=0; i<vals.length; i++) {
+    var sv = vals[i];
+    var isPos = sv.dv >= 0;
+    var color = sv.isSel ? '#F97316' : (isPos?'#10B981':'#EF4444');
+    var y = padT + i*(rowH+gap);
+    var midY = y + rowH/2 + 4;
+
+    svg += "<text x='"+(nameW-6)+"' y='"+midY+"' text-anchor='end' font-size='10' font-weight='"+(sv.isSel?'700':'500')+"' fill='"+(sv.isSel?'#F97316':'#1A1A2E')+"' font-family='Inter,sans-serif'>"+sv.name+"</text>";
+
+    var valStr;
+    if (STORE_PERIOD_BRKDN_MODE===0) valStr = (isPos?'':'-')+'₪'+Math.abs(sv.dv).toFixed(2);
+    else if (STORE_PERIOD_BRKDN_MODE===1) valStr = (isPos?'':'-')+(Math.abs(sv.dv)*100).toFixed(1)+'%';
+    else { var kk=Math.round(Math.abs(sv.raw)/1000); valStr = (isPos?'':'-')+'₪'+kk.toLocaleString('en-US')+'k'; }
+    var valColor = isPos ? '#059669' : '#DC2626';
+    svg += "<text x='"+(nameW+valW-4)+"' y='"+midY+"' text-anchor='end' font-size='9' font-weight='700' fill='"+valColor+"' font-family='Inter,sans-serif'>"+valStr+"</text>";
+
+    var barLen, barX;
+    if (mixed) {
+      barLen = Math.abs(sv.dv)/maxAbs*(isPos ? maxBarPos : maxBarNeg);
+      barX = isPos ? actualZeroX : actualZeroX - barLen;
+    } else {
+      barLen = Math.abs(sv.dv)/maxAbs*maxBarPos;
+      barX = zeroX;
+    }
+    if (barX < nameW + valW) { barLen -= (nameW + valW - barX); barX = nameW + valW; }
+    if (barLen < 0.5) continue;
+    svg += "<rect x='"+barX+"' y='"+(y+3)+"' width='"+barLen+"' height='"+(rowH-6)+"' rx='2' fill='"+color+"' opacity='0.82'/>";
+  }
+
+  container.innerHTML = "<svg width='100%' viewBox='0 0 "+W+" "+H+"' preserveAspectRatio='xMidYMid meet' xmlns='http://www.w3.org/2000/svg'>"+svg+"</svg>";
+}
+
 function toggleStoreSectionById(rowId, clickedRow) {
   // Toggle all det rows with this id
   var container = clickedRow ? clickedRow.parentNode : document.getElementById('storeCompareContent');
@@ -2870,6 +3041,10 @@ function renderNewStructureTable(container,storeIdx,months,storeIdxB,monthsB,lbl
     html+='<span id="nsbtn2_'+sid+'" style="font-size:10px;color:'+col+';margin-right:4px">+</span>';
     html+='<b style="color:'+col+'">'+lbl+'</b>';
     html+='<button class="store-brkdn-btn" onclick="event.stopPropagation();openStoreBrkdn(\''+secKey+'\',\''+lbl+'\')" title="Stores Comparison">&#9783;</button>';
+    html+='<button class="store-period-btn" onclick="event.stopPropagation();openStorePeriodBrkdn(\''+secKey+'\',\''+lbl+'\','+storeIdx+')" title="Period Comparison (Same Store)'+(hasB?' — A':'')+'">&#128197;</button>';
+    if(hasB){
+      html+='<button class="store-period-btn" onclick="event.stopPropagation();openStorePeriodBrkdn(\''+secKey+'\',\''+lbl+'\','+storeIdxB+')" title="Period Comparison (Same Store) — B">&#128197;</button>';
+    }
     html+='</td>';
     html+='<td style="'+TD+';color:'+(vA<0?'#DC2626':'#1A1A2E');html+=';font-weight:600">'+f(vA)+'</td>';
     html+='<td style="'+TD+'">'+fp(vA,dA.grossRev)+'</td>';
@@ -2891,6 +3066,10 @@ function renderNewStructureTable(container,storeIdx,months,storeIdxB,monthsB,lbl
       html+='<td style="'+TD+';text-align:left;padding-left:28px;color:#555;font-size:11px">';
       html+=short;
       html+='<button class="store-brkdn-btn" onclick="event.stopPropagation();openStoreBrkdn(\''+acc+'\',\''+short+'\')" title="Stores Comparison">&#9783;</button>';
+      html+='<button class="store-period-btn" onclick="event.stopPropagation();openStorePeriodBrkdn(\''+acc+'\',\''+short+'\','+storeIdx+')" title="Period Comparison (Same Store)'+(hasB?' — A':'')+'">&#128197;</button>';
+      if(hasB){
+        html+='<button class="store-period-btn" onclick="event.stopPropagation();openStorePeriodBrkdn(\''+acc+'\',\''+short+'\','+storeIdxB+')" title="Period Comparison (Same Store) — B">&#128197;</button>';
+      }
       html+='</td>';
       html+='<td style="'+TD+';color:'+(avA<0?'#DC2626':'#374151')+'">'+f(avA)+'</td>';
       html+='<td style="'+TD+';color:#6B7280">'+fp(avA,dA.grossRev)+'</td>';
